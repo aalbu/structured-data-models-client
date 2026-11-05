@@ -12,6 +12,7 @@ class DataBackend(StrEnum):
     SNOWFLAKE = 'snowflake'
     DATABRICKS = 'databricks'
     POSTGRES = 'postgres'
+    TRINO = 'trino'
 
 
 from .source import SourceColumn, SourceForeignKey  # noqa: E402

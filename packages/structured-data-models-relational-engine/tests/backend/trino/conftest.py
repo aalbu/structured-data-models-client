@@ -30,8 +30,14 @@ CATALOG = 'memory'
 TEST_USER = 'sdm_test'
 
 
-def trino_connection(url: str, user: str = TEST_USER) -> Any:
-    r"""A connection to the test server, as ``user``, in UTC."""
+def trino_connection(
+    url: str, user: str = TEST_USER, source: str = 'sdm-tests'
+) -> Any:
+    r"""A connection to the test server, as ``user``, in UTC.
+
+    ``source`` tags every statement, so a test can find its own in
+    ``system.runtime.queries``.
+    """
     parts = urlsplit(url)
     return trino.dbapi.connect(
         host=parts.hostname,
@@ -40,6 +46,7 @@ def trino_connection(url: str, user: str = TEST_USER) -> Any:
         user=user,
         catalog=CATALOG,
         timezone='UTC',
+        source=source,
     )
 
 
