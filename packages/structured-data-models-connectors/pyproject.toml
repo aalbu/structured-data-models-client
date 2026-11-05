@@ -91,6 +91,9 @@ databricks = [
 postgres = [
     "psycopg[binary]>=3.1",
 ]
+trino = [
+    "trino>=0.340",
+]
 # `sdm_connectors.databricks.lakebase`. Plain psycopg, since the binary wheel's
 # OpenSSL aborts on Databricks' aarch64 FIPS hosts; 0.89 added `postgres`.
 lakebase = [

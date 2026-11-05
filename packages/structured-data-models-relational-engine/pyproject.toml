@@ -86,6 +86,9 @@ databricks=[
 postgres=[
     "structured-data-models-connectors[postgres]",
 ]
+trino=[
+    "structured-data-models-connectors[trino]",
+]
 
 [build-system]
 requires = [

@@ -79,6 +79,22 @@ def postgres_dsn() -> str:
     pytest.skip('SDM_POSTGRES_TEST_DSN is not set')
 
 
+@pytest.fixture(scope='session')
+def trino_url() -> str:
+    r"""The Trino server the Trino backend's tests run against.
+
+    ``scripts/trino_test_server.py`` starts one. Skipped where none is
+    configured, and failed where ``SDM_REQUIRE_TRINO`` says one should be, as
+    :func:`postgres_dsn` is.
+    """
+    url = os.getenv('SDM_TRINO_TEST_URL')
+    if url:
+        return url
+    if os.getenv('SDM_REQUIRE_TRINO'):
+        pytest.fail('SDM_REQUIRE_TRINO is set but SDM_TRINO_TEST_URL is not')
+    pytest.skip('SDM_TRINO_TEST_URL is not set')
+
+
 @pytest.fixture(scope='class')
 def mock_api() -> Generator[requests_mock.Mocker, None, None]:
     with requests_mock.Mocker() as m:

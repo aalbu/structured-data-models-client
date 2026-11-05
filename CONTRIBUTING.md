@@ -33,7 +33,7 @@ python3.12 -m venv .venv
   -e './packages/structured-data-models-api[test]' \
   -e './packages/structured-data-models-pql[test]' \
   -e './packages/structured-data-models-client[test]' \
-  -e './packages/structured-data-models-connectors[sqlite,duckdb,postgres,databricks,snowflake,s3,test]'
+  -e './packages/structured-data-models-connectors[sqlite,duckdb,postgres,trino,databricks,snowflake,s3,test]'
 .venv/bin/python -m pytest \
   packages/structured-data-models-api/tests packages/structured-data-models-pql/tests \
   packages/structured-data-models-client/tests packages/structured-data-models-connectors/tests tests -q
@@ -92,6 +92,14 @@ SDM_TABULAR_URL=http://localhost:8000 \
 SDM_RELATIONAL_URL=http://localhost:8001 \
   .venv/bin/python -m pytest packages/structured-data-models-client/tests \
     -m live_nim -q
+
+# the Trino backend, against a throwaway Trino in Docker: the script starts
+# one, prints the export line the tests read, and removes it with --stop.
+# SDM_REQUIRE_TRINO turns a missing server into a failure rather than a skip.
+eval "$(.venv/bin/python scripts/trino_test_server.py)"
+SDM_REQUIRE_TRINO=1 .venv/bin/python -m pytest \
+  packages/structured-data-models-relational-engine/tests/backend/trino -q
+.venv/bin/python scripts/trino_test_server.py --stop
 
 # real warehouses, with credentials in the environment
 .venv/bin/python -m pytest \
