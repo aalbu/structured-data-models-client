@@ -5,5 +5,6 @@
 from sdm_connectors.backends.trino import Connection, connect
 
 from .table import TrinoTable
+from .sampler import TrinoSampler
 
-__all__ = ['Connection', 'TrinoTable', 'connect']
+__all__ = ['Connection', 'TrinoSampler', 'TrinoTable', 'connect']

@@ -435,6 +435,7 @@ def _sampled(graph: rfm.Graph, entity: str) -> dict[str, tuple]:
         'duckdb': ('duckdb', 'DuckDBSampler'),
         'local': ('local.sampler', 'LocalSampler'),
         'sqlite': ('sqlite', 'SQLiteSampler'),
+        'trino': ('trino', 'TrinoSampler'),
     }[str(graph[entity].backend)]
     sampler_cls = getattr(
         importlib.import_module(f'sdm_relational_engine.rfm.backend.{module}'),
