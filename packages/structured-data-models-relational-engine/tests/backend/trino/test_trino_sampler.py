@@ -1,9 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-r"""The Trino sampler reaches the rows the in-memory sampler reaches.
+r"""What only the Trino sampler has to get right.
 
-Ids travel to Trino as one JSON parameter, which the client inlines into the
+That it reaches the rows the in-memory sampler reaches is tested with every
+other SQL sampler, in ``test_sql_sampler_parity.py``. Ids travel to Trino as one JSON parameter, which the client inlines into the
 statement's text, so the tests here also hold every statement under Trino's
 query length.
 """
@@ -20,14 +21,7 @@ import pytest
 import sdm_relational_engine.rfm as rfm
 from sdm_relational_engine.rfm.backend.trino import TrinoSampler, TrinoTable
 
-from ..test_sql_sampler_parity import (
-    _KEYS,
-    _SHAPES,
-    _frames,
-    _sampled,
-    _shape_frames,
-    _shape_graph,
-)
+from ..test_sql_sampler_parity import _frames
 from .conftest import trino_connection, write_trino
 
 pytest.importorskip('sdm_relational_engine.relationallib')
@@ -77,48 +71,6 @@ def _statements(url: str, source: str) -> list[str]:
         'SELECT query FROM system.runtime.queries WHERE source = ?', [source]
     )
     return [row[0] for row in cursor.fetchall()]
-
-
-def _trino_shape_graph(url: str, schema: str, edges: list) -> rfm.Graph:
-    frames = _shape_frames()
-    names = sorted({table for edge in edges for table in (edge[0], edge[2])})
-    write_trino(url, schema, {name: frames[name] for name in names})
-    connection = trino_connection(url)
-    graph = rfm.Graph(
-        tables=[
-            TrinoTable(
-                connection,
-                name,
-                schema=schema,
-                primary_key=_KEYS[name],
-                **({'time_column': 'ts'} if 'ts' in frames[name] else {}),
-            )
-            for name in names
-        ],
-        edges=edges,
-    )
-    graph._connection = connection
-    return graph
-
-
-@pytest.mark.parametrize(
-    'shape, entity',
-    [
-        (shape, entity)
-        for shape, edges in _SHAPES.items()
-        for entity in sorted({e[0] for e in edges} | {e[2] for e in edges})[:3]
-    ],
-)
-def test_every_shape_samples_as_in_memory(
-    trino_url: str, trino_schema: str, shape: str, entity: str
-) -> None:
-    edges = _SHAPES[shape]
-    graph = _trino_shape_graph(trino_url, trino_schema, edges)
-    try:
-        sampled = _sampled(graph, entity)
-    finally:
-        _close(graph)
-    assert sampled == _sampled(_shape_graph('local', '', edges), entity)
 
 
 def test_big_and_quoted_ids_round_trip(

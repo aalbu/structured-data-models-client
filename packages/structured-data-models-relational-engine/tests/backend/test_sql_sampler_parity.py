@@ -16,6 +16,7 @@ import sqlite3
 import uuid
 import warnings
 from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -151,9 +152,91 @@ def _write_postgres(
         connection.close()
 
 
+def _trino_connection(url: str) -> Any:
+    from urllib.parse import urlsplit
+
+    backend = pytest.importorskip('sdm_connectors.backends.trino')
+    parts = urlsplit(url)
+    return backend.connect(
+        f'{parts.scheme}://{parts.hostname}:{parts.port}', user='sdm_test'
+    )
+
+
+def _write_trino(
+    url: str, schema: str, frames: dict[str, pd.DataFrame]
+) -> None:
+    r"""Each frame as a table in ``memory.<schema>``, which is created."""
+    connection = _trino_connection(url)
+    try:
+
+        def run(sql: str, parameters: list | None = None) -> None:
+            connection.cursor().execute(sql, parameters).fetchall()
+
+        def trino_type(series: pd.Series) -> str:
+            if pd.api.types.is_integer_dtype(series.dtype):
+                return 'BIGINT'
+            if pd.api.types.is_float_dtype(series.dtype):
+                return 'DOUBLE'
+            if pd.api.types.is_datetime64_any_dtype(series.dtype):
+                return 'TIMESTAMP(6)'
+            return 'VARCHAR'
+
+        def value(item: Any) -> Any:
+            if item is None or item is pd.NA:
+                return None
+            if isinstance(item, pd.Timestamp):
+                return item.to_pydatetime()
+            if isinstance(item, np.generic):
+                return item.item()
+            return item
+
+        run(f'CREATE SCHEMA memory."{schema}"')
+        for name, frame in frames.items():
+            types = [trino_type(frame[column]) for column in frame.columns]
+            columns = ', '.join(
+                f'"{column}" {kind}'
+                for column, kind in zip(frame.columns, types, strict=True)
+            )
+            table = f'memory."{schema}"."{name}"'
+            run(f'CREATE TABLE {table} ({columns})')
+            casts = (
+                '(' + ', '.join(f'CAST(? AS {kind})' for kind in types) + ')'
+            )
+            rows = [
+                [value(item) for item in row]
+                for row in frame.itertuples(index=False, name=None)
+            ]
+            for start in range(0, len(rows), 250):
+                batch = rows[start : start + 250]
+                run(
+                    f'INSERT INTO {table} VALUES {", ".join([casts] * len(batch))}',
+                    [item for row in batch for item in row],
+                )
+    finally:
+        connection.close()
+
+
+def _drop_trino(url: str, schema: str) -> None:
+    connection = _trino_connection(url)
+    try:
+        connection.cursor().execute(
+            f'DROP SCHEMA IF EXISTS memory."{schema}" CASCADE'
+        ).fetchall()
+    finally:
+        connection.close()
+
+
 def _graph(backend: str, path: str, schema: str | None = None) -> rfm.Graph:
     if backend == 'postgres':
         graph = rfm.Graph.from_postgres(path, schema=schema, verbose=False)
+    elif backend == 'trino':
+        graph = rfm.Graph.from_trino(
+            _trino_connection(path),
+            catalog='memory',
+            schema=schema,
+            verbose=False,
+        )
+        graph._connection = graph['users']._connection
     else:
         graph = getattr(rfm.Graph, f'from_{backend}')(path, verbose=False)
     graph['orders'].remove_column('ext_id')
@@ -167,10 +250,23 @@ def _graph(backend: str, path: str, schema: str | None = None) -> rfm.Graph:
     return graph
 
 
-@pytest.fixture(params=['duckdb', 'sqlite', 'postgres'])
+@pytest.fixture(params=['duckdb', 'sqlite', 'postgres', 'trino'])
 def sql_graph(request, tmp_path) -> Iterator[rfm.Graph]:
     backend = request.param
     users, orders = _frames()
+    if backend == 'trino':
+        url = request.getfixturevalue('trino_url')
+        schema = f'sdm_parity_{uuid.uuid4().hex}'
+        _write_trino(url, schema, {'users': users, 'orders': orders})
+        graph = _graph(backend, url, schema)
+        try:
+            yield graph
+        finally:
+            if graph._connection is not None:
+                graph._connection.close()
+                graph._connection = None
+            _drop_trino(url, schema)
+        return
     if backend == 'postgres':
         dsn = request.getfixturevalue('postgres_dsn')
         schema = f'sdm_parity_{uuid.uuid4().hex}'
@@ -423,6 +519,21 @@ def _shape_graph(backend: str, path: str, edges: list) -> rfm.Graph:
             if 'time_column' in spec:
                 graph[spec['name']].time_column = spec['time_column']
         return graph
+    if backend == 'trino':
+        schema = f'sdm_shape_{uuid.uuid4().hex}'
+        _write_trino(path, schema, {name: frames[name] for name in names})
+        graph = rfm.Graph.from_trino(
+            _trino_connection(path),
+            tables=tables,
+            catalog='memory',
+            schema=schema,
+            edges=edges,
+            infer_metadata=False,
+            verbose=False,
+        )
+        graph._connection = next(iter(graph.tables.values()))._connection
+        graph._trino_schema = schema  # type: ignore[attr-defined]
+        return graph
     return getattr(rfm.Graph, f'from_{backend}')(
         path, tables=tables, edges=edges, infer_metadata=False, verbose=False
     )
@@ -470,7 +581,7 @@ def _sampled(graph: rfm.Graph, entity: str) -> dict[str, tuple]:
     return sampled
 
 
-@pytest.mark.parametrize('backend', ['duckdb', 'sqlite'])
+@pytest.mark.parametrize('backend', ['duckdb', 'sqlite', 'trino'])
 @pytest.mark.parametrize(
     'shape, entity',
     [
@@ -480,7 +591,7 @@ def _sampled(graph: rfm.Graph, entity: str) -> dict[str, tuple]:
     ],
 )
 def test_every_shape_samples_as_in_memory(
-    tmp_path, backend: str, shape: str, entity: str
+    request, tmp_path, backend: str, shape: str, entity: str
 ) -> None:
     r"""Two paths to a table sampled a hop too deep, and a column linking
     to two tables failed, on every SQL backend, while the in-memory
@@ -488,12 +599,19 @@ def test_every_shape_samples_as_in_memory(
     hop, from each table, as the in-memory sampler does.
     """
     edges = _SHAPES[shape]
-    graph = _shape_graph(backend, str(tmp_path / f'db.{backend}'), edges)
+    path = (
+        request.getfixturevalue('trino_url')
+        if backend == 'trino'
+        else str(tmp_path / f'db.{backend}')
+    )
+    graph = _shape_graph(backend, path, edges)
     try:
         sampled = _sampled(graph, entity)
     finally:
         if graph._connection is not None:
             graph._connection.close()
             graph._connection = None
+        if backend == 'trino':
+            _drop_trino(path, graph._trino_schema)  # type: ignore[attr-defined]
 
     assert sampled == _sampled(_shape_graph('local', '', edges), entity)
