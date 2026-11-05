@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     from psycopg import Connection as PostgresConnection
     from sdm_connectors.backends.spark import SparkConnection
     from snowflake.connector import SnowflakeConnection
+    from trino.dbapi import Connection as TrinoConnection
 
 
 @dataclass(frozen=True, eq=True)
@@ -609,6 +610,7 @@ class Graph:
             | SnowflakeConnection
             | DatabricksConnection
             | PostgresConnection
+            | TrinoConnection
             | SparkConnection
             | None
         ) = None
@@ -1353,6 +1355,120 @@ class Graph:
 
         if internal_connection:
             graph._connection = connection
+
+        if infer_metadata:
+            graph.infer_metadata(verbose=False)
+            if edges is None:
+                graph.infer_links(verbose=False)
+
+        if verbose:
+            graph.print_metadata()
+            graph.print_links()
+
+        return graph
+
+    @classmethod
+    def from_trino(
+        cls,
+        connection: TrinoConnection,
+        tables: Sequence[str | dict[str, Any]] | None = None,
+        catalog: str | None = None,
+        schema: str | None = None,
+        edges: Sequence[EdgeLike] | None = None,
+        infer_metadata: bool = True,
+        verbose: bool = True,
+    ) -> Self:
+        r"""Creates a graph from tables behind a Trino server.
+
+        .. code-block:: python
+
+            >>> import trino
+            >>> import sdm_relational_engine.rfm as rfm
+            >>> graph = rfm.Graph.from_trino(
+            ...     trino.dbapi.connect(host='localhost', user='me'),
+            ...     tables=['customers', 'hive.sales.orders'],
+            ...     catalog='hive',
+            ...     schema='crm',
+            ... )
+
+        A table named in full, ``catalog.schema.table``, may sit outside
+        ``catalog`` and ``schema``; one named in two parts is resolved against
+        ``catalog``. Trino declares no keys, so edges are inferred when
+        ``infer_metadata=True`` and ``edges`` is ``None``.
+
+        Args:
+            connection: An open ``trino.dbapi`` connection. The caller keeps
+                it, and closes it.
+            tables: Table names or :class:`TrinoTable` keyword arguments. If
+                ``None``, every base table in ``catalog.schema`` is included.
+            catalog: Trino catalog. Defaults to the connection's.
+            schema: Trino schema. Defaults to the connection's.
+            edges: Optional explicit graph edges; an empty sequence means
+                "these edges and no others".
+            infer_metadata: Whether to infer metadata for every table.
+            verbose: Whether to print inferred metadata and links.
+        """
+        from sdm_connectors import quote_ident
+        from sdm_connectors.backends.trino import reading
+
+        from sdm_relational_engine.rfm.backend.trino import TrinoTable
+
+        catalog = catalog or connection.catalog
+        schema = schema or connection.schema
+        if not catalog or not schema:
+            raise ValueError(
+                "No 'catalog' or 'schema' given, and the connection names "
+                'none. Please specify the Trino catalog and schema'
+            )
+
+        try:
+            if tables is None:
+                with reading(connection) as cursor:
+                    cursor.execute(
+                        'SELECT table_name\n'
+                        f'FROM {quote_ident(catalog)}.information_schema.tables\n'
+                        'WHERE table_schema = ?\n'
+                        "  AND table_type = 'BASE TABLE'\n"
+                        'ORDER BY table_name',
+                        [schema],
+                    )
+                    tables = [row[0] for row in cursor.fetchall()]
+                _require_discovered_tables(
+                    tables, f"schema '{catalog}.{schema}'"
+                )
+
+            table_kwargs: list[dict[str, Any]] = []
+            for table in tables:
+                kwargs = (
+                    dict(name=table)
+                    if isinstance(table, str)
+                    else copy.copy(table)
+                )
+                parts = kwargs.get('source_name', kwargs['name']).split('.')
+                if len(parts) > 3:
+                    raise ValueError(
+                        f'Trino table name {".".join(parts)!r} has more than '
+                        'three parts'
+                    )
+                if len(parts) > 1:
+                    kwargs['source_name'] = parts[-1]
+                    kwargs.setdefault('schema', parts[-2])
+                    if len(parts) == 3:
+                        kwargs.setdefault('catalog', parts[0])
+                kwargs.setdefault('catalog', catalog)
+                kwargs.setdefault('schema', schema)
+                table_kwargs.append(kwargs)
+
+            graph = cls(
+                tables=[
+                    TrinoTable(connection=connection, **kwargs)
+                    for kwargs in table_kwargs
+                ],
+                edges=edges,
+            )
+        except BaseException as error:
+            _reraise_as_graph_error(error, 'Trino')
+            raise
 
         if infer_metadata:
             graph.infer_metadata(verbose=False)
@@ -3572,6 +3688,7 @@ class Graph:
             | SnowflakeConnection
             | DatabricksConnection
             | PostgresConnection
+            | TrinoConnection
             | SparkConnection
         ),
     ) -> None:
@@ -3632,6 +3749,18 @@ class Graph:
 
                 assert isinstance(table, PostgresTable)
                 assert isinstance(connection, PgConnection)
+                table._connection = connection
+
+            if table.backend == DataBackend.TRINO:
+                from sdm_relational_engine.rfm.backend.trino import (
+                    Connection as TrinoConnection,
+                )
+                from sdm_relational_engine.rfm.backend.trino import (
+                    TrinoTable,
+                )
+
+                assert isinstance(table, TrinoTable)
+                assert isinstance(connection, TrinoConnection)
                 table._connection = connection
 
     # Class properties ########################################################

@@ -45,6 +45,11 @@ class PostgresLike(Protocol):
     def commit(self) -> None: ...
 
 
+class TrinoLike(Protocol):
+    # Trino's own, since its DB-API connection is otherwise plain.
+    def start_transaction(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
 class DuckDBLike(Protocol):
     def install_extension(self, *args: Any, **kwargs: Any) -> Any: ...
 

@@ -21,6 +21,7 @@ connection its own driver makes, and says so if given another.
 | `SnowflakeSource` | `snowflake.connector.connect()`, or a Snowpark session | `database`, `schema` | `snowflake` |
 | `DatabricksSource` | `databricks.sql.connect()`, or a notebook's Spark session | `catalog`, `schema` | `databricks` |
 | `PostgresSource` | `psycopg.connect()`, synchronous | `schema` | `postgres` |
+| `TrinoSource` | `trino.dbapi.connect()` | `catalog`, `schema` | `trino` |
 | `DuckDBSource` | `duckdb.connect()` | — | `duckdb` |
 | `SQLiteSource` | `adbc_driver_sqlite.dbapi.connect()` | — | `sqlite` |
 

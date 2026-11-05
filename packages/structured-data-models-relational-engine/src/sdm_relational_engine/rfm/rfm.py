@@ -694,6 +694,10 @@ class KumoRelational:
             )
 
             self._sampler = PostgresSampler(graph, verbose)
+        elif graph.backend == DataBackend.TRINO:
+            from sdm_relational_engine.rfm.backend.trino import TrinoSampler
+
+            self._sampler = TrinoSampler(graph, verbose)
         else:
             raise NotImplementedError
 
@@ -2004,6 +2008,15 @@ class KumoRelational:
 
             assert isinstance(self._sampler, PostgresSampler)
             assert isinstance(connection, PgConnection)
+            self._sampler._connection = connection
+        if self._sampler.backend == DataBackend.TRINO:
+            from sdm_relational_engine.rfm.backend.trino import (
+                Connection as TrinoConnection,
+            )
+            from sdm_relational_engine.rfm.backend.trino import TrinoSampler
+
+            assert isinstance(self._sampler, TrinoSampler)
+            assert isinstance(connection, TrinoConnection)
             self._sampler._connection = connection
 
     # Helpers #################################################################

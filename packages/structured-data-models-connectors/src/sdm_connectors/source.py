@@ -32,6 +32,7 @@ if TYPE_CHECKING:
         SparkLike,
         SparkSession,
         SQLiteLike,
+        TrinoLike,
     )
     from sdm_connectors.backends.databricks import (
         Connection as DatabricksConnection,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     )
     from sdm_connectors.backends.spark import SparkConnection
     from sdm_connectors.backends.sqlite import Connection as SQLiteConnection
+    from sdm_connectors.backends.trino import Connection as TrinoConnection
 
 # Recognised by the module that defines the connection's class, or any of its
 # bases, so a driver is never imported just to be ruled out.
@@ -53,6 +55,7 @@ _DRIVER_MODULES: tuple[tuple[str, str], ...] = (
     ('sdm_connectors.backends.spark', 'databricks'),
     ('snowflake.connector', 'snowflake'),
     ('psycopg', 'postgres'),
+    ('trino.dbapi', 'trino'),
     ('duckdb', 'duckdb'),
     ('_duckdb', 'duckdb'),
     ('adbc_driver_sqlite', 'sqlite'),
@@ -60,8 +63,9 @@ _DRIVER_MODULES: tuple[tuple[str, str], ...] = (
 
 _ACCEPTED = (
     'a Databricks SQL connection or a Spark session, a Snowflake connection '
-    'or Snowpark session, a psycopg connection, a DuckDB connection, or an '
-    "ADBC SQLite connection, each opened with its driver's own connect"
+    'or Snowpark session, a psycopg connection, a Trino connection, a DuckDB '
+    "connection, or an ADBC SQLite connection, each opened with its driver's "
+    'own connect'
 )
 
 
@@ -162,6 +166,14 @@ class Source:
         cls, connection: PostgresLike, *, schema: str | None = None
     ) -> PostgresSource: ...
     @overload
+    def __new__(
+        cls,
+        connection: TrinoLike,
+        *,
+        catalog: str | None = None,
+        schema: str | None = None,
+    ) -> TrinoSource: ...
+    @overload
     def __new__(cls, connection: DuckDBLike) -> DuckDBSource: ...
     @overload
     def __new__(cls, connection: SQLiteLike) -> SQLiteSource: ...
@@ -235,7 +247,8 @@ class Source:
     @property
     def backend(self) -> str:
         r"""Which engine the tables are sampled with: ``'databricks'``,
-        ``'snowflake'``, ``'postgres'``, ``'duckdb'`` or ``'sqlite'``.
+        ``'snowflake'``, ``'postgres'``, ``'trino'``, ``'duckdb'`` or
+        ``'sqlite'``.
         """
         return self._backend
 
@@ -428,6 +441,42 @@ class PostgresSource(Source):
         return self._connection
 
 
+class TrinoSource(Source):
+    r"""Tables behind a Trino server, in a catalog and schema.
+
+    >>> source = TrinoSource(trino.dbapi.connect(...), catalog='hive',
+    ...                      schema='sales')
+
+    One connection reaches every catalog the server holds, so a table may be
+    named in full, ``catalog.schema.table``, to reach outside the source's
+    own. Trino declares no keys: pass ``primary_keys`` and ``relationships``,
+    or let them be inferred.
+
+    Args:
+        connection: A ``trino.dbapi`` connection.
+        catalog: The catalog. Defaults to the connection's.
+        schema: The schema. Defaults to the connection's.
+    """
+
+    _BACKEND = 'trino'
+    _NAMESPACE = ('catalog', 'schema')
+    _TAKES = 'a Trino connection from trino.dbapi.connect()'
+
+    def __init__(
+        self,
+        connection: TrinoConnection,
+        *,
+        catalog: str | None = None,
+        schema: str | None = None,
+    ) -> None:
+        self._bind(connection, {'catalog': catalog, 'schema': schema})
+
+    @property
+    def connection(self) -> TrinoConnection:
+        r"""The connection sampling runs through."""
+        return self._connection
+
+
 class DuckDBSource(Source):
     r"""Tables in a DuckDB database.
 
@@ -539,6 +588,7 @@ _BY_BACKEND: Mapping[str, type[Source]] = {
     'databricks': DatabricksSource,
     'snowflake': SnowflakeSource,
     'postgres': PostgresSource,
+    'trino': TrinoSource,
     'duckdb': DuckDBSource,
     'sqlite': SQLiteSource,
 }

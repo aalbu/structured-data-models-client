@@ -12,6 +12,7 @@ from sdm_connectors.source import (
     SnowflakeSource,
     Source,
     SQLiteSource,
+    TrinoSource,
 )
 from sdm_connectors.sql import (
     ConnectorError,
@@ -30,6 +31,7 @@ __all__ = [
     'SemanticModel',
     'SnowflakeSource',
     'Source',
+    'TrinoSource',
     '__version__',
     'quote_ident',
     'read',

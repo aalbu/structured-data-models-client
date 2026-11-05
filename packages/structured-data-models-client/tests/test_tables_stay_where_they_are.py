@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-r"""Schemas over tables left in DuckDB, SQLite and Postgres, sampled there with
-SQL."""
+r"""Schemas over tables left in DuckDB, SQLite, Postgres and Trino, sampled
+there with SQL."""
 
 from __future__ import annotations
 
@@ -147,7 +147,64 @@ def postgres_source(postgres: Any) -> Any:
     return PostgresSource(connection, schema=namespace)
 
 
-@pytest.fixture(params=['duckdb', 'sqlite', 'postgres'])
+@pytest.fixture
+def trino() -> Any:
+    r"""A Trino connection and a ``memory`` schema of its own, dropped
+    afterwards."""
+    url = os.getenv('SDM_TRINO_TEST_URL')
+    if not url:
+        if os.getenv('SDM_REQUIRE_TRINO'):
+            pytest.fail(
+                'SDM_REQUIRE_TRINO is set but SDM_TRINO_TEST_URL is not'
+            )
+        pytest.skip('SDM_TRINO_TEST_URL is not set')
+    backend = pytest.importorskip('sdm_connectors.backends.trino')
+
+    namespace = f'sdm_{uuid.uuid4().hex[:8]}'
+    connection = backend.connect(url, user='sdm_test')
+    connection.cursor().execute(f'CREATE SCHEMA memory.{namespace}').fetchall()
+    try:
+        yield connection, namespace
+    finally:
+        connection.cursor().execute(
+            f'DROP SCHEMA memory.{namespace} CASCADE'
+        ).fetchall()
+        connection.close()
+
+
+def _create_trino(
+    connection: Any, name: str, frame: pd.DataFrame, columns: str
+) -> None:
+    connection.cursor().execute(f'CREATE TABLE {name} ({columns})').fetchall()
+    rows = _python_rows(frame)
+    width = len(frame.columns)
+    for start in range(0, len(rows), 250):
+        batch = rows[start : start + 250]
+        markers = ', '.join(['(' + ', '.join(['?'] * width) + ')'] * len(batch))
+        connection.cursor().execute(
+            f'INSERT INTO {name} VALUES {markers}',
+            [value for row in batch for value in row],
+        ).fetchall()
+
+
+@pytest.fixture
+def trino_source(trino: Any) -> Any:
+    from sdm_connectors import TrinoSource
+
+    connection, namespace = trino
+    for name, frame, columns in (
+        ('app_users', USERS, 'user_id BIGINT, age BIGINT, country VARCHAR'),
+        (
+            'app_orders',
+            ORDERS,
+            'order_id BIGINT, user_id BIGINT, amount DOUBLE, ts TIMESTAMP(6)',
+        ),
+    ):
+        _create_trino(connection, f'memory.{namespace}.{name}', frame, columns)
+    return TrinoSource(connection, catalog='memory', schema=namespace)
+
+
+@pytest.fixture(params=['duckdb', 'sqlite', 'postgres', 'trino'])
 def source(request: pytest.FixtureRequest) -> Any:
     return request.getfixturevalue(f'{request.param}_source')
 
@@ -629,6 +686,13 @@ def _add_members(source: Any, request: pytest.FixtureRequest) -> None:
                 'app_members', USERS.assign(joined=joined), mode='create'
             )
         source.connection.commit()
+    elif source.backend == 'trino':
+        connection, namespace = request.getfixturevalue('trino')
+        connection.cursor().execute(
+            f'CREATE TABLE memory.{namespace}.app_members AS SELECT *, '
+            f"TIMESTAMP '{joined}' AS joined "
+            f'FROM memory.{namespace}.app_users'
+        ).fetchall()
     else:
         connection, namespace = request.getfixturevalue('postgres')
         connection.execute(

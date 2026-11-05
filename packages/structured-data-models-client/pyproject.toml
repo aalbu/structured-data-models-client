@@ -71,6 +71,7 @@ snowflake = ["structured-data-models-connectors[snowflake]==1.0.0"]
 databricks = ["structured-data-models-connectors[databricks]==1.0.0"]
 postgres = ["structured-data-models-connectors[postgres]==1.0.0"]
 lakebase = ["structured-data-models-connectors[lakebase]==1.0.0"]
+trino = ["structured-data-models-connectors[trino]==1.0.0"]
 s3 = ["structured-data-models-connectors[s3]==1.0.0"]
 # Reaching a model served on Databricks Model Serving. The one extra that names
 # a third-party package directly: the transport that imports it lives in this

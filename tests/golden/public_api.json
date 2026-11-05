@@ -451,6 +451,7 @@
       "SemanticModel",
       "SnowflakeSource",
       "Source",
+      "TrinoSource",
       "__version__",
       "quote_ident",
       "read",
@@ -572,6 +573,19 @@
         ],
         "public_methods": {},
         "signature": "(connection: 'Any' = None, *args: 'Any', **namespace: 'Any') -> 'Source'"
+      },
+      "TrinoSource": {
+        "bases": [
+          "sdm_connectors.source.Source"
+        ],
+        "kind": "class",
+        "public_attributes": [
+          "backend",
+          "connection",
+          "namespace"
+        ],
+        "public_methods": {},
+        "signature": "(connection: 'TrinoConnection', *, catalog: 'str | None' = None, schema: 'str | None' = None) -> 'None'"
       },
       "__version__": {
         "kind": "str",

@@ -1,0 +1,15 @@
+{
+  "catalogs": [
+    {"user": "outsider", "catalog": "memory", "allow": "none"},
+    {"catalog": ".*", "allow": "all"}
+  ],
+  "schemas": [{"owner": true}],
+  "tables": [
+    {"user": "nobody", "table": "orders", "privileges": []},
+    {
+      "privileges": [
+        "SELECT", "INSERT", "DELETE", "UPDATE", "OWNERSHIP", "GRANT_SELECT"
+      ]
+    }
+  ]
+}

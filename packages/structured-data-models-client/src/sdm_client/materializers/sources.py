@@ -211,6 +211,16 @@ def _read(
             infer_metadata=infer_metadata,
             verbose=False,
         )
+    if backend == 'trino':
+        return Graph.from_trino(
+            connection,
+            tables=specs,
+            catalog=namespace.get('catalog'),
+            schema=namespace.get('schema'),
+            edges=[],
+            infer_metadata=infer_metadata,
+            verbose=False,
+        )
     if backend == 'duckdb':
         return Graph.from_duckdb(
             connection,

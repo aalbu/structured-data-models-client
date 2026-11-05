@@ -1510,6 +1510,7 @@ _BACKEND_NAMES = {
     'databricks': 'Databricks',
     'snowflake': 'Snowflake',
     'postgres': 'PostgreSQL',
+    'trino': 'Trino',
     'duckdb': 'DuckDB',
     'sqlite': 'SQLite',
 }
