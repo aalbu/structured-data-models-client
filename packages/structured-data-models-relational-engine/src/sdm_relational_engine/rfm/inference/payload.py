@@ -626,8 +626,23 @@ def _populate_relationship_columns(
             }
         )
 
+    # Both directions of a relationship rebuild the same foreign key column,
+    # and only the first one met is used. The forward edge holds a pair for
+    # every source row the sampler expanded; the reverse edge only for the
+    # rows reached outward from the destination. Samplers insert links in
+    # traversal order, and the SQL samplers record the entity table's foreign
+    # keys as reverse edges on hop 0, so without this the entity table's
+    # foreign keys were built from the reverse edge and mostly lost.
+    #
+    # The reverse edge is not merged into the gaps the forward edge leaves.
+    # Those gaps are entity rows; filling them was measured to cost as much
+    # accuracy as the reordering gains, for reasons not yet understood.
+    links = sorted(
+        context.sampled_subgraph.links.items(),
+        key=lambda item: item[0][1].startswith(REVERSE_RELATION_PREFIX),
+    )
     processed_edges: set[tuple[str, str, str]] = set()
-    for edge_type, link in context.sampled_subgraph.links.items():
+    for edge_type, link in links:
         logical_edge_type = _logical_forward_edge_type(edge_type)
         if logical_edge_type in processed_edges:
             continue
